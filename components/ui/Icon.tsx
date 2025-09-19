@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 // Using a type for icon names for better type safety
@@ -12,7 +13,9 @@ export type IconName =
   | 'copy'
   | 'trash'
   | 'loader'
-  | 'alert-circle';
+  | 'alert-circle'
+  | 'home'
+  | 'menu';
 
 export interface IconProps extends React.SVGProps<SVGSVGElement> {
   name: IconName;
@@ -79,7 +82,13 @@ const icons: Record<IconName, React.ReactNode> = {
   ),
   'alert-circle': (
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM12 8V12M12 16H12.01" />
-  )
+  ),
+  home: (
+    <path strokeLinecap="round" strokeLinejoin="round" d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  ),
+  menu: (
+     <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+  ),
 };
 
 const Icon: React.FC<IconProps> = ({ name, className, ...props }) => {

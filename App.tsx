@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import LandingPage from './components/landing/LandingPage';
 import Dashboard from './components/dashboard/Dashboard';
@@ -10,11 +11,15 @@ function App() {
   const handleNavigateToDashboard = () => {
     setShowDashboard(true);
   };
+  
+  const handleNavigateHome = () => {
+    setShowDashboard(false);
+  };
 
   return (
     <NotificationProvider>
       {showDashboard ? (
-        <Dashboard />
+        <Dashboard onNavigateHome={handleNavigateHome} />
       ) : (
         <LandingPage onNavigateToDashboard={handleNavigateToDashboard} />
       )}

@@ -1,28 +1,25 @@
-export type WebhookResultStatus = 'loading' | 'success' | 'error';
-
 export interface WebhookConfig {
   id: string;
   name: string;
-  aiModel?: string;
+  url: string;
+  aiModel: string;
 }
 
-// FIX: Add GroundingSource type to strongly type the search grounding results.
-export interface GroundingSource {
-  web?: {
-    uri: string;
-    // FIX: Made title optional to align with the Gemini API response.
-    title?: string;
-  };
+export interface WebhookSource {
+  uri: string;
+  title: string;
 }
+
+export type WebhookResultStatus = 'loading' | 'success' | 'error';
 
 export interface WebhookResult {
   id: string;
-  webhookId: string;
-  webhookName: string;
-  url: string;
+  url?: string; // URL is optional now
+  fileName?: string; // New field for file uploads
+  inputType: 'url' | 'file'; // New field to distinguish source
   summary: string;
-  // FIX: Add sources to store grounding chunks from Google Search.
-  sources?: GroundingSource[];
+  sources: WebhookSource[];
+  timestamp: number;
   status: WebhookResultStatus;
-  timestamp: string;
+  webhookName: string;
 }

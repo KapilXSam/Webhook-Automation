@@ -3,7 +3,7 @@ import type { WebhookConfig, WebhookResult } from '../../types';
 import Button from '../ui/Button';
 import Icon from '../ui/Icon';
 import { useNotification } from '../../contexts/NotificationContext';
-import { summarizeUrlOnBackend } from '../../services/apiService';
+import { testWebhook, analyzeFile } from '../../services/apiService';
 
 interface SettingsViewProps {
   webhookConfigs: WebhookConfig[];
@@ -11,80 +11,124 @@ interface SettingsViewProps {
   setResults: React.Dispatch<React.SetStateAction<WebhookResult[]>>;
 }
 
-const AI_MODELS = [
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-];
-
 const SettingsView: React.FC<SettingsViewProps> = ({ webhookConfigs, setWebhookConfigs, setResults }) => {
-  const [newWebhookName, setNewWebhookName] = useState('');
-  const [newWebhookModel, setNewWebhookModel] = useState(AI_MODELS[0].id);
-  const [testingId, setTestingId] = useState<string | null>(null);
   const { addNotification } = useNotification();
+  const [newWebhookName, setNewWebhookName] = useState('');
+  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
+
+  // State for file analysis
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [filePrompt, setFilePrompt] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+
+  const getWebhookUrl = (id: string) => `${window.location.origin}/api/webhook/${id}`;
 
   const handleAddWebhook = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWebhookName.trim()) {
-      addNotification('Webhook name cannot be empty.', 'error');
+      addNotification('Webhook name cannot be empty', 'error');
       return;
     }
 
-    const newWebhook: WebhookConfig = {
+    const newConfig: WebhookConfig = {
       id: `wh_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       name: newWebhookName.trim(),
-      aiModel: newWebhookModel,
+      aiModel: selectedModel,
+      url: '' // url is generated based on id
     };
+    newConfig.url = getWebhookUrl(newConfig.id);
 
-    setWebhookConfigs(prev => [...prev, newWebhook]);
+    setWebhookConfigs(prev => [...prev, newConfig]);
     setNewWebhookName('');
-    addNotification(`Webhook "${newWebhook.name}" created successfully!`, 'success');
+    addNotification(`Webhook "${newConfig.name}" created!`, 'success');
+  };
+  
+  const handleDeleteWebhook = (id: string) => {
+    setWebhookConfigs(prev => prev.filter(config => config.id !== id));
+    addNotification('Webhook deleted', 'success');
+  };
+  
+  const handleCopyUrl = (url: string) => {
+    navigator.clipboard.writeText(url);
+    addNotification('Webhook URL copied to clipboard!', 'success');
   };
 
-  const handleDeleteWebhook = (id: string) => {
-    const configToDelete = webhookConfigs.find(wh => wh.id === id);
-    if(configToDelete) {
-        setWebhookConfigs(prev => prev.filter(wh => wh.id !== id));
-        addNotification(`Webhook "${configToDelete.name}" has been deleted.`, 'success');
+  const handleTestWebhook = async (config: WebhookConfig) => {
+    const tempId = `temp_${Date.now()}`;
+    // Immediately add a loading card to the dashboard
+    setResults(prev => [
+        {
+            id: tempId,
+            url: 'https://en.wikipedia.org/wiki/Webhook',
+            inputType: 'url',
+            summary: 'Sending test event to backend...',
+            sources: [],
+            timestamp: Date.now(),
+            status: 'loading',
+            webhookName: config.name,
+        },
+        ...prev,
+    ]);
+    
+    addNotification(`Sending test to "${config.name}"...`, 'success');
+    try {
+      const response = await testWebhook(config.id, window.location.origin);
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      // The backend will send an SSE event to update the card, no success message needed here
+    } catch (error) {
+       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+       addNotification(`Failed to send test: ${errorMessage}`, 'error');
+       // Update the card on the dashboard to show the error
+       setResults(prev => prev.map(r => r.id === tempId ? { ...r, status: 'error', summary: errorMessage } : r));
     }
   };
 
-  const handleCopyToClipboard = (id: string) => {
-    const webhookUrl = `${window.location.origin}/api/webhook/${id}`;
-    navigator.clipboard.writeText(webhookUrl);
-    addNotification('Webhook URL copied to clipboard!', 'success');
-  };
-  
-  const handleTestWebhook = async (webhookConfig: WebhookConfig) => {
-    setTestingId(webhookConfig.id);
-    addNotification(`Sending test for "${webhookConfig.name}"...`, 'success');
+  const handleFileAnalysis = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFile) {
+        addNotification('Please select a file.', 'error');
+        return;
+    }
+    if (!filePrompt.trim()) {
+        addNotification('Please enter a prompt.', 'error');
+        return;
+    }
     
-    const testUrl = 'https://en.wikipedia.org/wiki/Webhook';
-    const tempId = `res_test_${Date.now()}`;
-    const newResult: WebhookResult = {
-      id: tempId,
-      webhookId: webhookConfig.id,
-      webhookName: webhookConfig.name,
-      url: testUrl,
-      summary: '',
-      status: 'loading',
-      timestamp: new Date().toISOString(),
-    };
+    setIsAnalyzing(true);
+    const tempId = `temp_${Date.now()}`;
+    const webhookName = 'Manual File Analysis';
 
-    setResults(prev => [newResult, ...prev]);
+    // Add loading card to dashboard
+    setResults(prev => [
+        {
+            id: tempId,
+            fileName: selectedFile.name,
+            inputType: 'file',
+            summary: 'Uploading file and analyzing...',
+            sources: [],
+            timestamp: Date.now(),
+            status: 'loading',
+            webhookName,
+        },
+        ...prev,
+    ]);
 
     try {
-      const { summary, sources } = await summarizeUrlOnBackend(testUrl, webhookConfig.aiModel);
-      setResults(prev => 
-        prev.map(r => r.id === tempId ? { ...r, summary, sources, status: 'success' } : r)
-      );
-      addNotification('Test summary generated successfully!', 'success');
+        const response = await analyzeFile(selectedFile, filePrompt, webhookName, tempId);
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        setSelectedFile(null);
+        setFilePrompt('');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
-      setResults(prev => 
-        prev.map(r => r.id === tempId ? { ...r, summary: `Test failed: ${errorMessage}`, status: 'error' } : r)
-      );
-      addNotification('Test failed.', 'error');
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        addNotification(`Analysis failed: ${errorMessage}`, 'error');
+        setResults(prev => prev.map(r => r.id === tempId ? { ...r, status: 'error', summary: errorMessage } : r));
     } finally {
-      setTestingId(null);
+        setIsAnalyzing(false);
     }
   };
 
@@ -94,66 +138,103 @@ const SettingsView: React.FC<SettingsViewProps> = ({ webhookConfigs, setWebhookC
       <header className="mb-8">
         <h1 className="text-3xl font-bold text-text-primary tracking-tight">Settings</h1>
         <p className="mt-2 text-text-secondary max-w-2xl">
-          Create, manage, and test your webhook configurations. Each webhook gets a unique URL to receive data.
+          Manage and test your AI-powered webhooks and file analysis capabilities.
         </p>
       </header>
-
-      <div className="p-6 bg-surface border border-border-color rounded-lg">
-        <h2 className="text-lg font-semibold text-text-primary">Add New Webhook</h2>
-        <form onSubmit={handleAddWebhook} className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <input
-                type="text"
-                value={newWebhookName}
-                onChange={(e) => setNewWebhookName(e.target.value)}
-                placeholder="Webhook Name"
-                className="flex-grow w-full px-4 py-2 bg-background border border-border-color rounded-md focus:outline-none focus:ring-2 focus:ring-primary sm:col-span-2"
-            />
-            <select
-                value={newWebhookModel}
-                onChange={(e) => setNewWebhookModel(e.target.value)}
-                className="w-full px-4 py-2 bg-background border border-border-color rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-                {AI_MODELS.map(model => (
-                    <option key={model.id} value={model.id}>{model.name}</option>
-                ))}
-            </select>
-            <Button type="submit" variant="primary" className="w-full sm:col-span-3">
-                <Icon name="webhook" className="w-5 h-5 mr-2"/>
-                Add Webhook
-            </Button>
-        </form>
-      </div>
-
-      <div className="mt-8">
-        <h2 className="text-xl font-semibold text-text-primary mb-4">Your Webhooks</h2>
-        <div className="space-y-4">
-            {webhookConfigs.length > 0 ? webhookConfigs.map(config => (
-                <div key={config.id} className="p-4 bg-surface border border-border-color rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 flex-wrap">
-                           <h3 className="font-semibold text-text-primary">{config.name}</h3>
-                           <span className="text-xs bg-primary/20 text-primary font-medium px-2 py-0.5 rounded-full">
-                             {AI_MODELS.find(m => m.id === config.aiModel)?.name || 'Default Model'}
-                           </span>
-                        </div>
-                        <div className="mt-2 flex items-center bg-background border border-border-color rounded-md transition-colors focus-within:ring-2 focus-within:ring-primary">
-                            <input type="text" readOnly value={`${window.location.origin}/api/webhook/${config.id}`} className="flex-grow bg-transparent text-text-secondary text-sm focus:outline-none p-2"/>
-                            <Button variant="subtle" size="sm" onClick={() => handleCopyToClipboard(config.id)} className="flex-shrink-0"><Icon name="copy" className="w-4 h-4 mr-1" />Copy</Button>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 self-start sm:self-center">
-                        <Button variant="secondary" size="sm" onClick={() => handleTestWebhook(config)} disabled={testingId === config.id}>
-                            {testingId === config.id ? <><Icon name="loader" className="w-4 h-4 mr-2 animate-spin" />Testing...</> : <><Icon name="sparkles" className="w-4 h-4 mr-2"/>Test</>}
-                        </Button>
-                        <Button variant="secondary" size="sm" onClick={() => handleDeleteWebhook(config.id)} className="hover:!bg-red-500/20 hover:!text-red-400">
-                            <Icon name="trash" className="w-4 h-4 mr-1"/>
-                        </Button>
-                    </div>
+      
+      <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="space-y-8">
+            <section className="bg-surface border border-border-color rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-text-primary">Create New Webhook</h2>
+            <form onSubmit={handleAddWebhook} className="mt-4 flex flex-col sm:flex-row gap-4 items-end">
+                <div className="flex-grow w-full">
+                    <label htmlFor="webhook-name" className="block text-sm font-medium text-text-secondary mb-1">Webhook Name</label>
+                    <input
+                        id="webhook-name"
+                        type="text"
+                        value={newWebhookName}
+                        onChange={(e) => setNewWebhookName(e.target.value)}
+                        placeholder="e.g., 'Summarize Blog Posts'"
+                        className="w-full bg-background border border-border-color rounded-md px-3 py-2 text-text-primary focus:ring-primary focus:border-primary"
+                    />
                 </div>
-            )) : (
-                <p className="text-text-secondary text-center py-4">You haven't created any webhooks yet.</p>
-            )}
+                <div className="w-full sm:w-auto">
+                    <label htmlFor="ai-model" className="block text-sm font-medium text-text-secondary mb-1">AI Model</label>
+                    <select 
+                        id="ai-model"
+                        value={selectedModel}
+                        onChange={e => setSelectedModel(e.target.value)}
+                        className="w-full bg-background border border-border-color rounded-md px-3 py-2 text-text-primary focus:ring-primary focus:border-primary"
+                    >
+                        <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                    </select>
+                </div>
+                <Button type="submit" variant="primary" className="w-full sm:w-auto">Create</Button>
+            </form>
+            </section>
+
+             <section className="bg-surface border border-border-color rounded-lg p-6">
+                <h2 className="text-xl font-semibold text-text-primary">Test with File</h2>
+                <form onSubmit={handleFileAnalysis} className="mt-4 space-y-4">
+                    <div>
+                        <label htmlFor="file-upload" className="block text-sm font-medium text-text-secondary mb-1">Upload Image</label>
+                        <input
+                            id="file-upload"
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
+                            className="w-full text-sm text-text-secondary file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="file-prompt" className="block text-sm font-medium text-text-secondary mb-1">Prompt</label>
+                         <textarea
+                            id="file-prompt"
+                            rows={3}
+                            value={filePrompt}
+                            onChange={(e) => setFilePrompt(e.target.value)}
+                            placeholder="e.g., 'What is in this image?'"
+                            className="w-full bg-background border border-border-color rounded-md px-3 py-2 text-text-primary focus:ring-primary focus:border-primary"
+                        />
+                    </div>
+                    <Button type="submit" variant="primary" disabled={isAnalyzing || !selectedFile}>
+                        {isAnalyzing ? 'Analyzing...' : 'Analyze File'}
+                    </Button>
+                </form>
+            </section>
         </div>
+
+        <section>
+            <h2 className="text-xl font-semibold text-text-primary mb-4">Existing Webhooks</h2>
+            <div className="space-y-4">
+                {webhookConfigs.length > 0 ? (
+                    webhookConfigs.map(config => (
+                        <div key={config.id} className="bg-surface border border-border-color rounded-lg p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                            <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-text-primary">{config.name}</p>
+                                <p className="text-sm text-text-secondary truncate mt-1" title={getWebhookUrl(config.id)}>
+                                    {getWebhookUrl(config.id)}
+                                </p>
+                                <p className="text-xs text-text-secondary mt-1">Model: {config.aiModel}</p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-center">
+                                <Button variant="subtle" size="sm" onClick={() => handleTestWebhook(config)}>
+                                    <Icon name="webhook" className="w-4 h-4 mr-1"/> Test
+                                </Button>
+                                <Button variant="subtle" size="sm" onClick={() => handleCopyUrl(getWebhookUrl(config.id))}>
+                                    <Icon name="copy" className="w-4 h-4 mr-1"/> Copy URL
+                                </Button>
+                                <Button variant="subtle" size="sm" onClick={() => handleDeleteWebhook(config.id)} className="hover:!bg-red-500/20 hover:!text-red-400">
+                                    <Icon name="trash" className="w-4 h-4 mr-1"/> Delete
+                                </Button>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <p className="text-text-secondary text-center py-8">No webhooks configured yet.</p>
+                )}
+            </div>
+        </section>
       </div>
     </div>
   );

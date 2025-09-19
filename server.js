@@ -35,7 +35,13 @@ app.get('/api/events', (req, res) => {
   clients.push(newClient);
   
   // Immediately send the history of events to the new client
-  eventsHistory.forEach(event => newClient.res.write(`data: ${JSON.stringify(event)}\n\n`));
+  eventsHistory.forEach(event => {
+      try {
+        newClient.res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch (error) {
+        console.error('Error sending historical event to new client:', error);
+      }
+  });
 
   req.on('close', () => {
     clients = clients.filter(c => c.id !== clientId);
@@ -48,8 +54,19 @@ function sendEvent(data) {
   if (eventsHistory.length > 20) {
     eventsHistory.shift();
   }
-  // Broadcast the event to all connected clients
-  clients.forEach(client => client.res.write(`data: ${JSON.stringify(data)}\n\n`));
+  
+  try {
+    const eventString = `data: ${JSON.stringify(data)}\n\n`;
+    // Broadcast the event to all connected clients
+    clients.forEach(client => {
+        // Check if the connection is still writable before sending
+        if (!client.res.writableEnded) {
+            client.res.write(eventString);
+        }
+    });
+  } catch (error) {
+    console.error("Error serializing or sending event data:", error);
+  }
 }
 
 // --- Gemini Helper Functions ---

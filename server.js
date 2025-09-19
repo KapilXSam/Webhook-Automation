@@ -16,6 +16,10 @@ const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// FIX: Teach Express to serve .tsx files as JavaScript.
+// This resolves the "application/octet-stream" MIME type error.
+express.static.mime.define({'application/javascript': ['tsx']});
+
 // Middleware
 app.use(express.json({ limit: '10mb' })); // Increase body limit for file uploads
 app.use(express.static(__dirname)); // Serve static files from the project root

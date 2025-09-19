@@ -6,6 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "build": "echo \"No frontend build step required. Server dependencies will be installed.\"",
     "dev": "echo 'Run your frontend development server and your backend server (node server.js) in separate terminals.'"
   },
   "dependencies": {

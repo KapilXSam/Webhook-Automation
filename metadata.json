@@ -1,0 +1,5 @@
+{
+  "name": "AI Webhook Dashboard",
+  "description": "A sleek landing page and dashboard for an AI service that processes data from webhooks. Features a smooth-scrolling interface, settings for webhook configuration, and a beautiful, modern design.",
+  "requestFramePermissions": []
+}
